@@ -64,9 +64,6 @@ import json
 import getopt
 import glob
 
-import org.apache.log4j.Logger
-import org.apache.log4j.Level
-
 import os
 import sys
 
@@ -80,8 +77,9 @@ sc = SparkContext("local", "PV Inverter Analysis")
 spark = SparkSession(sc)
 
 # We don't need most of this output
-Logger.getLogger("org").setLevel(Level.ERROR)
-Logger.getLogger("akka").setLevel(Level.ERROR)
+log4j = sc._jvm.org.apache.log4j
+log4j.LogManager.getRootLogger().setLevel(log4j.Level.ERROR)
+
 
 allYears = range(2013, 2020)
 allFrames = {}
@@ -106,7 +104,7 @@ def importCSV(fname, isOld):
                  current, energen, vac) = row
             else:
                 (tstamp, temp, powergen, vdc, current, energen, vac) = row
-        except ValueError as ve:
+        except ValueError as _ve:
             # print("failed at {row} of {fname}".format(row=row, fname=fname))
             continue
 
@@ -134,18 +132,31 @@ def generateFiles(topdir, year, month):
     """Construct per-year dicts of lists of files"""
     allfiles = {}
     kkey = ""
+    patterns = []
+    months = []
+    # Since some of our data dirs have months as bare numbers and
+    # others have a prepended 0, let's match them correctly.
+    if month:
+        if month < 10:
+            months = [month, "0" + str(month)]
+        else:
+            months = [month]
     if year and month:
-        pattern = "{year}/{month}/*".format(year=year, month=month)
-        kkey = "{year}{month}".format(year=year, month=month)
-    elsif year:
-        pattern = "{year}/*/*".format(year=year)
+        patterns = ["{year}/{monthp}/**".format(year=year, monthp=monthp)
+                    for monthp in months]
         kkey = year
-    elsif month:
-        pattern = "*/{month}/*".format(month=month)
+    elif year:
+        patterns = ["{year}/*/**".format(year=year)]
+        kkey = year
+    elif month:
+        patterns = ["*/{monthp}/**".format(monthp=monthp) for monthp in months]
         kkey = month
-
-    if pattern:
-        allfiles[kkey] = glob.glob(os.path.join(topdir, pattern))
+    if patterns:
+        # print(patterns, kkey)
+        globs = []
+        for pat in patterns:
+            globs.extend(glob.glob(os.path.join(topdir, pat)))
+        allfiles[kkey] = globs
     else:
         for yy in allYears:
             allfiles[yy] = glob.glob(os.path.join(topdir,
@@ -167,15 +178,29 @@ if __name__ == "__main__":
             sys.exit(1)
         opts = dict(o)
         if "-m" in opts:
-            qmonth = opts["-m"]
+            # We'll take a bare number, not a 0-prepended form
+            qmonth = int(opts["-m"])
         if "-y" in opts:
             qyear = opts["-y"]
+        else:
+            print("A year argument must be supplied")
+            sys.exit(1)
 
     if qyear:
-       allYears = [qyear]
+        allYears = [qyear]
+    if qmonth:
+        allMonths = [qmonth]
 
     # We're only going to search for data underneath $PWD
-    allFiles = generateFiles("data", qyear, qmonth)
+    allFiles = generateFiles("/home/jmcp/OneDrive/ETL/solar-spark/data",
+                             qyear, qmonth)
+    # Sanity check - did we get any files to process?
+    for k in allFiles.keys():
+        if len(allFiles[k]) == 0:
+            print("No files to import for year {qyear} month {qmonth}".format(
+                qyear=qyear, qmonth=qmonth))
+            print(allFiles)
+            sys.exit(0)
 
     print("Importing data files")
 
@@ -189,7 +214,6 @@ if __name__ == "__main__":
         rdds[k] = rddyear
 
     print("All data files imported")
-
     for year in allYears:
         rdd = sc.parallelize(rdds[year])
         allFrames[year] = rdd.toDF()
@@ -199,75 +223,82 @@ if __name__ == "__main__":
             "DateOnly", date_format('timestamp', "yyyyMMdd")
         ).withColumn("TimeOnly", date_format('timestamp', "HHmmss"))
         allFrames[newFrame].createOrReplaceTempView("view{year}".format(
-        year=year))
+            year=year))
 
     print("Data transformed into RDDS")
 
 
-# Now we generate some reports
-# - for each year, which month had the day with the max and min energy outputs
-# - for each month, what was the average energy generated
-# - for each month, what was the total energy generated
+    # Now we generate some reports
+    # - for each year, which month had the day with the max and min energy outputs
+    # - for each month, what was the average energy generated
+    # - for each month, what was the total energy generated
+
+    # I'm doing to this with for loops over the dataframe, because that seems
+    # to be a more efficient way of answering these specific questions.
+    # With more experience using Spark over time I might ask the questions again
+    # in a more Spark-like fashion. We still need to get the data out somehow,
+    # however.
+
+    reports = {}
+
+    ymdquery = "SELECT DISTINCT DateOnly from {view} WHERE DateOnly "
+    ymdquery += "LIKE '{yyyymm}%' ORDER BY DateOnly ASC"
+
+    for year in allYears:
+
+        print("Analysing {year}".format(year=year))
+
+        yearEnergy = {}
+        yearEnergy["yearly generation"] = 0.0
+        view = "view" + str(year)
+        frame = allFrames["new" + str(year)]
+
+        for mon in allMonths:
+            if mon < 10:
+                yyyymm = str(year) + "0" + str(mon)
+            else:
+                yyyymm = str(year) + str(mon)
+            _dates = spark.sql(ymdquery.format(view=view, yyyymm=yyyymm)
+            ).collect()
+
+            days = [n.asDict()["DateOnly"] for n in _dates]
+            print(days)
+            _monthMax = frame.filter(
+                frame.DateOnly.isin(days)).agg(
+                    {"EnergyGenerated": "max"}).collect()[0]
+            monthMax = _monthMax.asDict()["max(EnergyGenerated)"]
+            yearEnergy[yyyymm + "-max"] = monthMax
+
+            # Obtaining the *average* and the minimum output on any day
+            # is a little more difficult since we have to loop through
+            # grabbing only the last value for each day - the field in
+            # the CSV is the ongoing day total, not an instantaneous value.
+            avgval = 0.0
+            minval = monthMax
+            minDay = ""
+            maxDay = ""
+            endOfMonth = 1
+
+            for day in days:
+                _val = frame.filter(frame.DateOnly == day).agg(
+                    {"EnergyGenerated": "max"}).collect()[0]
+                val = _val.asDict()["max(EnergyGenerated)"]
+                maxDay = day
+                if val < minval:
+                    minval = val
+                    minDay = day
+                avgval += minval
+                endOfMonth += 1
+            yearEnergy[yyyymm + "-min"] = minval
+            yearEnergy[yyyymm + "-avg"] = avgval / endOfMonth
+            yearEnergy["yearly generation"] += avgval
+                
+            # When did these record values (min, max) occur during
+            # the month?
+            yearEnergy[yyyymm + "-record-min"] = minDay
+            yearEnergy[yyyymm + "-record-max"] = maxDay
+
+        reports[view] = yearEnergy
 
 
-# I'm doing to this with for loops over the dataframe, because that seems
-# to be a more efficient way of answering these specific questions.
-# With more experience using Spark over time I might ask the questions again
-# in a more Spark-like fashion. We still need to get the data out somehow,
-# however.
-
-reports = {}
-
-ymdquery = "SELECT DISTINCT DateOnly from view{view} WHERE DateOnly "
-ymdquery += "LIKE '{yyyymm}%' ORDER BY DateOnly ASC"
-        
-for year in allYears:
-
-    print("Analysing {year}".format(year=year))
-
-    yearEnergy = {}
-    yearEnergy["yearly generation"] = 0.0
-    view = "view" + str(year)
-    frame = allFrames["new" + str(year)]
-
-    for mon in allMonths:
-        yyyymm = str(year) + mon
-        _dates = spark.sql(ymdquery.format(view=year, yyyymm=yyyymm)).collect()
-        days = [n.asDict()["DateOnly"] for n in _dates]
-        _monthMax = frame.filter(
-            frame.DateOnly.isin(days)).agg(
-                {"EnergyGenerated": "max"}).collect()[0]
-        monthMax = _monthMax.asDict()["max(EnergyGenerated)"]
-        yearEnergy[yyyymm + "-max"] = monthMax
-        # Obtaining the *average* and the minimum output on any day
-        # is a little more difficult since we have to loop through
-        # grabbing only the last value for each day - the field in
-        # the CSV is the ongoing day total, not an instantaneous value.
-        avgval = 0.0
-        minval = monthMax
-        minDay = ""
-        maxDay = ""
-        endOfMonth = 1
-        for day in days:
-            _val = frame.filter(frame.DateOnly == day).agg(
-                {"EnergyGenerated": "max"}).collect()[0]
-            val = _val.asDict()["max(EnergyGenerated)"]
-            maxDay = day
-            if val < minval:
-                minval = val
-                minDay = day
-            avgval += minval
-            endOfMonth += 1
-        yearEnergy[yyyymm + "-min"] = minval
-        yearEnergy[yyyymm + "-avg"] = avgval / endOfMonth
-        yearEnergy["yearly generation"] += avgval
-
-        # When did these record values (min, max) occur during
-        # the month?
-        yearEnergy[yyyymm + "-record-min"] = minDay
-        yearEnergy[yyyymm + "-record-max"] = maxDay
-
-    reports[view] = yearEnergy
-
-
-print(json.dumps(reports, indent=4))    
+    print(json.dumps(reports, indent=4))
