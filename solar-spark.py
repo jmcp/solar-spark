@@ -50,7 +50,7 @@
 # We load up *all* the data files, and then from within a venv which
 # has pyspark installed, we run
 #
-# $ SPARK_LOCAL_IP=0.0.0.0 pyspark /path/to/this/file
+# $ spark-submit /path/to/this/file (args)
 #
 # to generate several reports:
 # - for each year, which month had the day with the max and min energy outputs
@@ -148,9 +148,7 @@ def generateFiles(topdir, year, month):
     elif year:
         patterns = ["{year}/*/**".format(year=year)]
         kkey = year
-    elif month:
-        patterns = ["*/{monthp}/**".format(monthp=monthp) for monthp in months]
-        kkey = month
+
     if patterns:
         # print(patterns, kkey)
         globs = []
@@ -192,8 +190,7 @@ if __name__ == "__main__":
         allMonths = [qmonth]
 
     # We're only going to search for data underneath $PWD
-    allFiles = generateFiles("/home/jmcp/OneDrive/ETL/solar-spark/data",
-                             qyear, qmonth)
+    allFiles = generateFiles("data", qyear, qmonth)
     # Sanity check - did we get any files to process?
     for k in allFiles.keys():
         if len(allFiles[k]) == 0:
