@@ -199,7 +199,6 @@ if __name__ == "__main__":
         if len(allFiles[k]) == 0:
             print("No files to import for year {qyear} month {qmonth}".format(
                 qyear=qyear, qmonth=qmonth))
-            print(allFiles)
             sys.exit(0)
 
     print("Importing data files")
@@ -227,17 +226,16 @@ if __name__ == "__main__":
 
     print("Data transformed into RDDS")
 
-
     # Now we generate some reports
-    # - for each year, which month had the day with the max and min energy outputs
+    # - for each year, which month had the day with max and min energy output
     # - for each month, what was the average energy generated
     # - for each month, what was the total energy generated
 
     # I'm doing to this with for loops over the dataframe, because that seems
     # to be a more efficient way of answering these specific questions.
-    # With more experience using Spark over time I might ask the questions again
-    # in a more Spark-like fashion. We still need to get the data out somehow,
-    # however.
+    # With more experience using Spark over time I might ask the question
+    # again in a more Spark-like fashion. We still need to get the data out,
+    # somehow.
 
     reports = {}
 
@@ -254,15 +252,14 @@ if __name__ == "__main__":
         frame = allFrames["new" + str(year)]
 
         for mon in allMonths:
-            if mon < 10:
+            if int(mon) < 10:
                 yyyymm = str(year) + "0" + str(mon)
             else:
                 yyyymm = str(year) + str(mon)
             _dates = spark.sql(ymdquery.format(view=view, yyyymm=yyyymm)
-            ).collect()
+                              ).collect()
 
             days = [n.asDict()["DateOnly"] for n in _dates]
-            print(days)
             _monthMax = frame.filter(
                 frame.DateOnly.isin(days)).agg(
                     {"EnergyGenerated": "max"}).collect()[0]
@@ -292,13 +289,12 @@ if __name__ == "__main__":
             yearEnergy[yyyymm + "-min"] = minval
             yearEnergy[yyyymm + "-avg"] = avgval / endOfMonth
             yearEnergy["yearly generation"] += avgval
-                
+
             # When did these record values (min, max) occur during
             # the month?
             yearEnergy[yyyymm + "-record-min"] = minDay
             yearEnergy[yyyymm + "-record-max"] = maxDay
 
         reports[view] = yearEnergy
-
 
     print(json.dumps(reports, indent=4))
