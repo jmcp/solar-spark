@@ -60,7 +60,7 @@
 
 import csv
 import datetime
-import json
+# import json
 import getopt
 import glob
 
@@ -83,8 +83,10 @@ log4j.LogManager.getRootLogger().setLevel(log4j.Level.ERROR)
 
 allYears = range(2013, 2020)
 allFrames = {}
-allMonths = ["01", "02", "03", "04", "05", "06", "07", "08",
-             "09", "10", "11", "12"]
+allMonths = range(1, 13)
+mnames = ["", "January", "February", "March", "April", "May",
+          "June", "July", "August", "September", "October",
+          "November", "December"]
 rdds = {}
 
 
@@ -221,7 +223,7 @@ if __name__ == "__main__":
         allFrames[newFrame].createOrReplaceTempView("view{year}".format(
             year=year))
 
-    print("Data transformed into RDDS")
+    print("Data transformed from RDDs into DataFrames")
 
     # Now we generate some reports
     # - for each year, which month had the day with max and min energy output
@@ -249,25 +251,30 @@ if __name__ == "__main__":
         frame = allFrames["new" + str(year)]
 
         for mon in allMonths:
-            if int(mon) < 10:
+
+            print("\t {monthname}".format(monthname=mnames[mon]))
+
+            if mon < 10:
                 yyyymm = str(year) + "0" + str(mon)
             else:
                 yyyymm = str(year) + str(mon)
-            _dates = spark.sql(ymdquery.format(view=view, yyyymm=yyyymm)
-                              ).collect()
 
+            _dates = spark.sql(ymdquery.format(
+                view=view, yyyymm=yyyymm)).collect()
             days = [n.asDict()["DateOnly"] for n in _dates]
+
             _monthMax = frame.filter(
                 frame.DateOnly.isin(days)).agg(
                     {"EnergyGenerated": "max"}).collect()[0]
             monthMax = _monthMax.asDict()["max(EnergyGenerated)"]
-            yearEnergy[yyyymm + "-max"] = monthMax
+            monthGen = {}
+            monthGen["max"] = monthMax
 
             # Obtaining the *average* and the minimum output on any day
             # is a little more difficult since we have to loop through
             # grabbing only the last value for each day - the field in
             # the CSV is the ongoing day total, not an instantaneous value.
-            avgval = 0.0
+            monthTot = 0.0
             minval = monthMax
             minDay = ""
             maxDay = ""
@@ -281,17 +288,46 @@ if __name__ == "__main__":
                 if val < minval:
                     minval = val
                     minDay = day
-                avgval += minval
+                monthTot += minval
                 endOfMonth += 1
-            yearEnergy[yyyymm + "-min"] = minval
-            yearEnergy[yyyymm + "-avg"] = avgval / endOfMonth
-            yearEnergy["yearly generation"] += avgval
+
+            monthGen["min"] = minval
+            monthGen["avg"] = monthTot / endOfMonth
+            monthGen["total"] = monthTot
+            yearEnergy["yearly generation"] += monthTot
 
             # When did these record values (min, max) occur during
             # the month?
-            yearEnergy[yyyymm + "-record-min"] = minDay
-            yearEnergy[yyyymm + "-record-max"] = maxDay
+            monthGen["record-min"] = minDay
+            monthGen["record-max"] = maxDay
+            yearEnergy[mnames[mon]] = monthGen
 
         reports[view] = yearEnergy
 
-    print(json.dumps(reports, indent=4))
+    for yview in reports:
+        data = reports[yview]
+        # print(json.dumps(data, indent=4))
+        year = yview[4:]
+        print("{year} total generation: {total:.2f} KW/h".format(
+            year=year, total=data["yearly generation"]))
+        for m in allMonths:
+            mname = mnames[m]
+            mview = data[mname]
+            print("\t{mon} total:               {total:.2f} KW/h".format(
+                mon=mname, total=mview["total"]))
+
+            if mview["total"] == 0.00:
+                print("\t----------------")
+                continue
+
+            print("\tRecord dates for {mon}:    "
+                  "Max on {maxday} ({maxgen:.2f} KW/h), "
+                  "Min on {minday} ({mingen:.2f} KW/h)".format(
+                      mon=mname,
+                      maxday=mview["record-max"],
+                      maxgen=mview["max"],
+                      minday=mview["record-min"],
+                      mingen=mview["min"]))
+            print("\tAverage daily generation  {dayavg:.2f} KW/h".format(
+                dayavg=mview["avg"]))
+            print("----------------")
