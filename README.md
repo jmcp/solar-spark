@@ -6,7 +6,7 @@ This repo is a demonstration of using Apache Spark with Python to provide
 analysis of CSV-delimited data from a PV solar inverter. See 
 [pvoutput.org][https://www.pvoutput.org/intraday.jsp?id=21105&sid=18984],
 [jfy-monitor][https://github.com/jmcp/jfy-monitor] and
-[monitoring my inverter][https://www.jmcpdotcom.com/blog/posts/2018-04-03-monitoring-my-inverter/]
+[monitoring my inverter][https://www.jmcpdotcom.com/blog/posts/2018-04-03-monitoring-my-inverter/].
 
 
 There are two file formats involved in the entire collection. The first is the
@@ -59,3 +59,12 @@ to generate several reports:
 - for each month, what was the average energy generated
 - for each month, what was the total energy generated
 
+
+
+----
+
+ 
+  [pvoutput.org]: [https://www.pvoutput.org/intraday.jsp?id=21105&sid=18984]
+  [jfy-monitor]: [https://github.com/jmcp/jfy-monitor]
+  [monitoring my inverter]: [https://www.jmcpdotcom.com/blog/posts/2018-04-03-monitoring-my-inverter/]
+  [solarmonj]: [https://github.com/jcroucher/solarmonj]
