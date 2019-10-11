@@ -2,8 +2,8 @@ About this repo
 ---------------
 
 
-This repo is a demonstration of using Apache Spark with Python to provide
-analysis of CSV-delimited data from a PV solar inverter. See 
+This repo is a demonstration of using `Apache Spark`_ with `Python`_ to
+provide analysis of CSV-delimited data from a PV solar inverter. See 
 `pvoutput.org`_, `jfy-monitor`_ and `monitoring my inverter`_.
 
 
@@ -76,3 +76,5 @@ to generate several reports:
 ..  _jfy-monitor: https://github.com/jmcp/jfy-monitor
 ..  _monitoring my inverter: https://www.jmcpdotcom.com/blog/posts/2018-04-03-monitoring-my-inverter/
 ..  _solarmonj: https://github.com/jcroucher/solarmonj
+..  _Apache Spark: https://spark.apache.org
+..  _Python: https://python.org   
