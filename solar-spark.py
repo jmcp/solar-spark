@@ -83,7 +83,6 @@
 
 
 import csv
-import datetime
 # import json
 import getopt
 import glob
@@ -91,6 +90,7 @@ import glob
 import os
 import sys
 
+from datetime import datetime
 
 from pyspark.sql.functions import date_format
 from pyspark import SparkContext
@@ -114,10 +114,14 @@ mnames = ["", "January", "February", "March", "April", "May",
 rdds = {}
 
 
+def now():
+    """ Returns an ISO8601-formatted (without microseconds) timestamp"""
+    return datetime.now().strftime("%Y-%M-%dT%H:%m:%S")
+
 def importCSV(fname, isOld):
     output = []
     if isOld:
-        multiplier = 100.0
+        multiplier = 1000.0
     else:
         multiplier = 1.0
 
@@ -139,9 +143,9 @@ def importCSV(fname, isOld):
             continue
 
         if isOld:
-            isostamp = datetime.datetime.fromtimestamp(int(tstamp))
+            isostamp = datetime.fromtimestamp(int(tstamp))
         else:
-            isostamp = datetime.datetime.fromisoformat(tstamp)
+            isostamp = datetime.fromisoformat(tstamp)
 
         output.append({
             "timestamp": isostamp,
@@ -176,7 +180,6 @@ def generateFiles(topdir, year, month):
         kkey = year
 
     if patterns:
-        # print(patterns, kkey)
         globs = []
         for pat in patterns:
             globs.extend(glob.glob(os.path.join(topdir, pat)))
@@ -224,7 +227,7 @@ if __name__ == "__main__":
                 qyear=qyear, qmonth=qmonth))
             sys.exit(0)
 
-    print("Importing data files")
+    print(now(), "Importing data files")
 
     for k in allFiles:
         rddyear = []
@@ -235,7 +238,7 @@ if __name__ == "__main__":
                 rddyear.extend(importCSV(fn, False))
         rdds[k] = rddyear
 
-    print("All data files imported")
+    print(now(), "All data files imported")
     for year in allYears:
         rdd = sc.parallelize(rdds[year])
         allFrames[year] = rdd.toDF()
@@ -247,7 +250,7 @@ if __name__ == "__main__":
         allFrames[newFrame].createOrReplaceTempView("view{year}".format(
             year=year))
 
-    print("Data transformed from RDDs into DataFrames")
+    print(now(), "Data transformed from RDDs into DataFrames")
 
     # Now we generate some reports
     # - for each year, which month had the day with max and min energy output
@@ -267,7 +270,7 @@ if __name__ == "__main__":
 
     for year in allYears:
 
-        print("Analysing {year}".format(year=year))
+        print(now(), "Analysing {year}".format(year=year))
 
         yearEnergy = {}
         yearEnergy["yearly generation"] = 0.0
@@ -276,7 +279,7 @@ if __name__ == "__main__":
 
         for mon in allMonths:
 
-            print("\t {monthname}".format(monthname=mnames[mon]))
+            print(now(), "\t {monthname}".format(monthname=mnames[mon]))
 
             if mon < 10:
                 yyyymm = str(year) + "0" + str(mon)
@@ -302,7 +305,7 @@ if __name__ == "__main__":
             minval = monthMax
             minDay = ""
             maxDay = ""
-            endOfMonth = 1
+            endOfMonth = 0
 
             for day in days:
                 _val = frame.filter(frame.DateOnly == day).agg(
@@ -312,7 +315,7 @@ if __name__ == "__main__":
                 if val < minval:
                     minval = val
                     minDay = day
-                monthTot += minval
+                monthTot += val
                 endOfMonth += 1
 
             monthGen["min"] = minval
@@ -328,23 +331,25 @@ if __name__ == "__main__":
 
         reports[view] = yearEnergy
 
+    print(now(), "All data analysed")
+
     for yview in reports:
         data = reports[yview]
         # print(json.dumps(data, indent=4))
         year = yview[4:]
-        print("{year} total generation: {total:.2f} KW/h".format(
+        print(now(), "{year} total generation: {total:.2f} KW/h".format(
             year=year, total=data["yearly generation"]))
         for m in allMonths:
             mname = mnames[m]
             mview = data[mname]
-            print("\t{mon} total:               {total:.2f} KW/h".format(
+            print(now(), "\t{mon} total:               {total:.2f} KW/h".format(
                 mon=mname, total=mview["total"]))
 
             if mview["total"] == 0.00:
-                print("\t----------------")
+                print(now(), "\t----------------")
                 continue
 
-            print("\tRecord dates for {mon}:    "
+            print(now(), "\tRecord dates for {mon}:    "
                   "Max on {maxday} ({maxgen:.2f} KW/h), "
                   "Min on {minday} ({mingen:.2f} KW/h)".format(
                       mon=mname,
@@ -352,6 +357,6 @@ if __name__ == "__main__":
                       maxgen=mview["max"],
                       minday=mview["record-min"],
                       mingen=mview["min"]))
-            print("\tAverage daily generation  {dayavg:.2f} KW/h".format(
+            print(now(), "\tAverage daily generation  {dayavg:.2f} KW/h".format(
                 dayavg=mview["avg"]))
-            print("----------------")
+            print(now(), "----------------")
