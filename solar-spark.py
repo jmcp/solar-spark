@@ -307,6 +307,10 @@ if __name__ == "__main__":
             maxDay = ""
             endOfMonth = 0
 
+            if len(days) == 0:
+                # Handle the case where we're analysing a year but don't have
+                # full-year data available.
+                continue
             for day in days:
                 _val = frame.filter(frame.DateOnly == day).agg(
                     {"EnergyGenerated": "max"}).collect()[0]
